@@ -32,4 +32,10 @@ fsub_float
 fmul_float
 fdiv_float
 fmov_float
-
+fcvt_float
+scvtf_float_int
+ucvtf_float_int
+fcvtzs_float_int
+fcvtzu_float_int
+fmov_float
+fmov_float_gen

@@ -27,14 +27,18 @@ def all(f, x):
     return True
 
 def boxtofield(i):
+    global root
     width = int(i.attrib.get('width', '1'))
     hibit = int(i.attrib.get('hibit'))
     start = hibit - width + 1
     name = i.attrib['name']
-    if name == 'opc':
-        width = 1
-        name = 'sf'
-    return SimpleNamespace(name=name, start=start, width=width)
+    symb = root.xpath(f"//account[@encodedin='{name}']//preceding-sibling::symbol")
+    typ = ''
+    if len(symb) != 0:
+        c = symb[0].attrib['link'][0].lower()
+        if c == 'w' or c == 'x': typ = 'GP'
+        elif c == 's' or c == 'd' or c == 'h': typ = 'FP'
+    return SimpleNamespace(name=name, start=start, width=width, type=typ)
 def checkshift(x, xml):
     count = int(xml.xpath("count(//definition[@encodedin='shift']//row)"))
     if count == 4:
@@ -66,6 +70,7 @@ for field in fields:
 
 priorities = [
     'sf',
+    'opc',
     'type',
     'Rd',
     'Rt',

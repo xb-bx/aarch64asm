@@ -486,14 +486,48 @@ main :: proc() {
 	a: Assembler = {}
 
 	init_asm(&a)
-    compile_fibonacci(&a)
-    assemble(&a)
-
-    block, err := virtual.memory_block_alloc(4096, 4096, 32)
-    copy(block.base[:len(a.bytes)*4], (cast([^]u8)&a.bytes[0])[:len(a.bytes)*4])
-    virtual.protect(transmute(rawptr)(transmute(u64)(block.base) & (~u64(0xFFF))), 4096, {.Read, .Write, .Execute})
-
-    fibonacci := transmute(proc "c" (n1: i64) -> i64)block.base
-
-    fmt.println(fibonacci(20))
+    fadd(&a, d3, d2, d1)
+    fsub(&a, s3, s2, s1)
+    fmul(&a, h3, h2, h1)
+    fdiv(&a, s3, s2, s1)
+    fmov(&a, d3, d2) 
+    fmov(&a, s3, s2) 
+    fmov(&a, h3, h29) 
+    fcvt(&a, h1, s2)
+    fcvt(&a, h1, d2)
+    fcvt(&a, d1, s2)
+    fcvt(&a, d1, h2)
+    fcvt(&a, s1, d2)
+    fcvt(&a, s1, h2)
+    scvtf(&a, s0, w2)
+    scvtf(&a, h0, w2)
+    scvtf(&a, d0, w2)
+    scvtf(&a, s0, x2)
+    scvtf(&a, h0, x2)
+    scvtf(&a, d0, x2)
+    ucvtf(&a, s0, w2)
+    ucvtf(&a, h0, w2)
+    ucvtf(&a, d0, w2)
+    ucvtf(&a, s0, x2)
+    ucvtf(&a, h0, x2)
+    ucvtf(&a, d0, x2)
+    fcvtzu(&a, x0, s1)
+    fcvtzu(&a, x0, h1)
+    fcvtzu(&a, x0, d1)
+    fcvtzu(&a, w0, s1)
+    fcvtzu(&a, w0, h1)
+    fcvtzu(&a, w0, d1)
+    // // compile_fibodcci(&a)
+    // assemble(&a)
+    //
+    // block, err := virtual.memory_block_alloc(4096, 4096, 32)
+    // copy(block.base[:len(a.bytes)*4], (cast([^]u8)&a.bytes[0])[:len(a.bytes)*4])
+    // virtual.protect(transmute(rawptr)(transmute(u64)(block.base) & (~u64(0xFFF))), 4096, {.Read, .Write, .Execute})
+    //
+    // fibonacci := transmute(proc "c" (n1: i64) -> i64)block.base
+    //
+    // fmt.println(fibonacci(20))
+    for b in a.bytes {
+        fmt.printfln("%4X", b)
+    }
 }

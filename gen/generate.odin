@@ -8,9 +8,10 @@ import "core:io"
 import "core:bufio"
 import "core:os"
 Field :: struct {
-    name:   string,
-    start:  int,
-    width:  int,
+    name:  string,
+    start: int,
+    width: int,
+    type:  string,
 }
 
 Instruction :: struct {
@@ -38,13 +39,15 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
         append(&mnemonics[instr.mnemonic], instr.id)
     }
     is_sf := instr.fields[0].name == "sf"
-    is_float := instr.fields[0].name == "type"
-    is_sf_or_float := is_sf || is_float
+    flds := is_sf ? instr.fields[1:] : instr.fields
+    is_opc := flds[0].name == "opc"
+    flds = is_opc ? flds[1:] : flds
+    is_float := flds[0].name == "type"
+    flds = is_float ? flds[1:] : flds
     fd, err := os.open(fmt.aprintf("%s/%s.gen.odin", dir, instr.id), os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0o644)
     fmt.fprintln(fd, "package aarch64")
     fmt.fprintln(fd, "@private")
     fmt.fprintf(fd, "%s :: #force_inline proc(a: ^Assembler,", instr.id)
-    flds := is_sf_or_float ? instr.fields[1:] : instr.fields
     decld := false
     for fld in flds {
         type: string = ""
@@ -57,8 +60,14 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
             type = "bool = false"
         } else if strings.starts_with(fld.name, "R") {
             name = fld.name
-            type = is_sf ? decld ? "T" : "$T" : "XReg"
-            type = is_float ? decld ? "T" : "$T" : type
+            if is_opc {
+                type = decld ? "$T2" : "$T1"
+            } else if is_sf && is_float {
+                type = decld ? "$T2" : "$T1"
+            } else {
+                type = is_sf ? decld ? "T" : "$T" : "XReg"
+                type = is_float ? decld ? "T" : "$T" : type
+            }
             decld = true
         } else if strings.starts_with(fld.name, "imm") {
             name = fld.name
@@ -77,11 +86,27 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
             type = "i8 = 0"
         } else {
             fmt.println(fld)
+            fmt.println(instr.fields, instr.mnemonic)
             panic("todo")
         }
         fmt.fprintf(fd, "%s: %s, ", name, type)
     }
-    if is_sf {
+    rd := Field {}
+    for i in flds {
+        if i.name == "Rd" {
+            rd = i
+            break
+        }
+    }
+    if is_sf && is_float {
+        if rd.type == "GP" {
+            fmt.fprintln(fd, ") where (T1 == XReg || T1 == WReg) && (T2 == DReg || T2 == SReg || T2 == HReg) {")
+        } else {
+            fmt.fprintln(fd, ") where (T2 == XReg || T2 == WReg) && (T1 == DReg || T1 == SReg || T1 == HReg) {")
+        }
+    } else if is_opc {
+        fmt.fprintln(fd, ") where (T1 == DReg || T1 == SReg || T1 == HReg) && (T2 == DReg || T2 == SReg || T2 == HReg) && T1 != T2 {")
+    } else if is_sf {
         fmt.fprintln(fd, ") where T == XReg || T == WReg {")
     } else if is_float {
         fmt.fprintln(fd, ") where T == DReg || T == SReg || T == HReg {")
@@ -96,11 +121,28 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
             fmt.fprintfln(fd, "result |= ((u32(%s) & 0b%s) << %i)", fld.name, ones[:fld.width], fld.start)
         }
     }
-    if is_sf {
+    if is_sf && is_float {
+        if rd.type == "GP" {
+            fmt.fprintfln(fd, "when T1 == XReg {{ result |= ((0b01) << %i) }", instr.fields[0].start)
+            fmt.fprintfln(fd, "when T2 == HReg {{ result |= ((0b11) << %i) }", instr.fields[1].start)
+            fmt.fprintfln(fd, "when T2 == DReg {{ result |= ((0b01) << %i) }", instr.fields[1].start)
+        } else {
+            fmt.fprintfln(fd, "when T2 == XReg {{ result |= ((0b01) << %i) }", instr.fields[0].start)
+            fmt.fprintfln(fd, "when T1 == HReg {{ result |= ((0b11) << %i) }", instr.fields[1].start)
+            fmt.fprintfln(fd, "when T1 == DReg {{ result |= ((0b01) << %i) }", instr.fields[1].start)
+        }
+    } else if is_sf {
         fmt.fprintfln(fd, "when T == XReg {{ result |= ((1) << %i) }", instr.fields[0].start)
     } else if is_float {
-        fmt.fprintfln(fd, "when T == HReg {{ result |= ((0b11) << %i) }", instr.fields[0].start)
-        fmt.fprintfln(fd, "when T == DReg {{ result |= ((0b01) << %i) }", instr.fields[0].start)
+        if is_opc {
+            fmt.fprintfln(fd, "when T1 == HReg {{ result |= ((0b11) << %i) }", instr.fields[0].start)
+            fmt.fprintfln(fd, "when T1 == DReg {{ result |= ((0b01) << %i) }", instr.fields[0].start)
+            fmt.fprintfln(fd, "when T2 == HReg {{ result |= ((0b11) << %i) }", instr.fields[1].start)
+            fmt.fprintfln(fd, "when T2 == DReg {{ result |= ((0b01) << %i) }", instr.fields[1].start)
+        } else {
+            fmt.fprintfln(fd, "when T == HReg {{ result |= ((0b11) << %i) }", instr.fields[0].start)
+            fmt.fprintfln(fd, "when T == DReg {{ result |= ((0b01) << %i) }", instr.fields[0].start)
+        }
     }
     fmt.fprintln(fd, "append(&a.bytes, result)")
     fmt.fprintln(fd, "}")
