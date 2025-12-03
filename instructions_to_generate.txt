@@ -22,7 +22,6 @@ ldrb_imm
 ldrb_reg
 ldrh_imm
 ldrh_reg
-ldr_lit_gen
 ldr_reg_gen
 ldr_imm_fpsimd
 ldr_reg_fpsimd

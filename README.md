@@ -8,11 +8,11 @@
 ## Example 
 ```odin
 compile_fibonacci :: proc(a: ^Assembler) {
-    num1 := x1
-    num2 := x2
-    next := x3
-    n := x0
-    i := x4
+    num1 := x(1)
+    num2 := x(2)
+    next := x(3)
+    n := x(0)
+    i := x(4)
     mov(a, num1, 0)
     mov(a, num2, 1)
     mov(a, next, 0)
@@ -23,18 +23,18 @@ compile_fibonacci :: proc(a: ^Assembler) {
     loop_end := create_label(a)
 
     set_label(a, loop_cond) 
-        cmp(a, i, n)
+        cmp(a, i, n, Shift.LSL, 0)
         b(a, Cond.GT, loop_end)
     
     set_label(a, loop_body)
-        add(a, next, num1, num2)
+        add(a, next, num1, num2, Shift.LSL)
         mov(a, num1, num2)
         mov(a, num2, next)
         add(a, i, i, 1) 
         b(a, loop_cond)
     set_label(a, loop_end)
-        mov(a, x0, next)
-        ret(a, x30)
+        mov(a, x(0), next)
+        ret(a, x(30))
 }
 main :: proc() {
 	a: Assembler = {}

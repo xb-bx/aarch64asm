@@ -76,14 +76,21 @@ def parse_encoding(enc: ET._Element, base_opcode, base_fields):
         (field, i) = findfld(enc_fields, name)
         ci = 0
         bef = field.val
+        do_pop = True
         for c in box:
             if c.text != None:
                 cs = list(field.val)
                 cs[ci] = c.text.strip()
-                if cs[ci] == 'Z' or cs[ci] == 'N': cs[ci] = '0'
+                if cs[ci] == 'Z':
+                    cs[ci] = '0'
+                    field.start += 1
+                    field.width -= 1
+                elif cs[ci] == 'N': 
+                    cs[ci] = '0'
+                    do_pop = False
                 field.val = str.join("", cs)
             ci += 1 
-        enc_fields.pop(i)
+        if do_pop: enc_fields.pop(i)
         opcode = opcode | (int(field.val,2) << field.start)
     for field in enc_fields:
         type_field(field, enc_name)
@@ -114,7 +121,9 @@ def parse_class(cls: ET._Element, len_classes):
             if text == 'x':
                 text = '0'
                 append = True
-            elif text == 'Z' or text == 'N':
+            elif text == 'Z':
+                text = '0'
+            elif text == 'N':
                 text = '0'
             if name != None:
                 if c.attrib.get('colspan') != None:
@@ -132,7 +141,39 @@ def parse_class(cls: ET._Element, len_classes):
     if name == 'Post-index': name = 'post'
     if name == 'Pre-index': name = 'pre'
     if name == 'Unsigned offset': name = 'unsigned_off'
-    return SimpleNamespace(name=name,encodings=encs)
+    is_mem = findfld(fields, "Rt") != None
+    # print(encs)
+    if is_mem:
+        rm = findfld(fields, "Rm")
+        if rm != None:
+            new_encs = [] 
+            for enc in encs:
+                new_encs.append(enc)
+                new_enc_fields = copy_fields(enc.fields)
+                (rm, rmi) = findfld(new_enc_fields, "Rm")
+                if rm.type == 'x': continue
+                # print(new_enc_fields, sys.argv[1])
+                opt = findfld(new_enc_fields, "option")
+                if opt == None: continue
+                prevopt = findfld(new_enc_fields, "option")
+                (option, optioni) = opt
+                (prevoption, prevoptioni) = prevopt
+                prevoption.start += 1
+                enc.fields[prevoptioni] = prevoption
+                if option.width == 2: continue
+                rm.type = 'x'
+                if option.start < 10 or option.start > 20: print('aboba')
+                new_opcode = enc.opcode | (1 << (option.start ))
+                # print('start', option.start, hex(base_opcode))
+                opt = findfld(new_enc_fields, "option")
+                # print(fields)
+                if opt != None:
+                    (_, optioni) = opt
+                    new_enc_fields.pop(optioni)
+                new_encs.append(SimpleNamespace(name=enc.name + "_64", opcode=new_opcode, fields=new_enc_fields))
+            encs = new_encs
+
+    return SimpleNamespace(name=name,encodings=encs, is_mem=is_mem)
 classes = root.xpath('//iclass')
 res = []
 for cls in classes:
@@ -140,70 +181,7 @@ for cls in classes:
 
 res = SimpleNamespace(mnemonic=mnemonic, classes=res)
 json.dump(res, fp=sys.stdout, default=vars, indent=True)
-# print(res)
     
 
 
 sys.exit(0)
-
-
-# boxes: list[ET._Element] = root.xpath('(//regdiagram)[1]/box')
-# base_opcode_str = ''
-# base_opcode = 0
-# fields = []
-#
-#
-#
-#
-# base_opcode = int(base_opcode_str, 2)
-#
-#
-# encodings = root.xpath('//encoding')
-# boxes = encodings[0].xpath('box')
-# if len(boxes) == 0:
-#
-#
-#     for field in fields:
-#         type_field(field)
-#     sortedfields = []    
-#     for prio in priorities:
-#         for fld in fields:
-#             if fld.name == prio or (fld.name.startswith('imm') and prio == 'imm'):
-#                 sortedfields.append(fld)
-#                 fields.remove(fld)
-#                 break
-#
-#     if len(fields) != 0:
-#         print(fields)
-#         sys.exit(1)
-#     fields = sortedfields
-#     v = SimpleNamespace(name=instr_id, opcode=base_opcode, fields=fields)
-#     res = SimpleNamespace(mnemonic=mnemonic, variants=[v])
-#     json.dump(res, fp=sys.stdout, default=vars)
-#     sys.exit(0)
-#
-#
-# variants = []
-# result = [] 
-# priorities = [
-#     'sf',
-#     'opc',
-#     'type',
-#     'Rd',
-#     'Rt',
-#     'Rn',
-#     'Rm',
-#     'cond',
-#     'shift',
-#     'label',
-#     'imm',
-#     'shiftbool',
-#     'S',
-#     'option',
-#     'hw',
-# ]
-#
-# # for enc in encodings:
-#
-# res = SimpleNamespace(mnemonic=mnemonic, variants=result)
-# json.dump(res, fp=sys.stdout, default=vars)

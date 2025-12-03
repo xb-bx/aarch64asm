@@ -103,21 +103,21 @@ assemble :: proc(using assebler: ^Assembler) {
 
 }
 
-HReg :: distinct int
+HReg :: distinct u8
 h :: proc(i: int) -> HReg { return HReg(i) }
-SReg :: distinct int
+SReg :: distinct u8
 s :: proc(i: int) -> SReg { return SReg(i) }
-DReg :: distinct int
+DReg :: distinct u8
 d :: proc(i: int) -> DReg { return DReg(i) }
-XReg :: distinct int
+XReg :: distinct u8
 x :: proc(i: int) -> XReg { return XReg(i) }
-WReg :: distinct int
+WReg :: distinct u8
 w :: proc(i: int) -> WReg { return WReg(i) }
-VReg :: distinct int
+VReg :: distinct u8
 v :: proc(i: int) -> VReg { return VReg(i) }
-QReg :: distinct int
+QReg :: distinct u8
 q :: proc(i: int) -> QReg { return QReg(i) }
-BReg :: distinct int
+BReg :: distinct u8
 
 
 Extend :: enum {
@@ -136,6 +136,40 @@ Shift :: enum {
     ASR,
     ROR,
 }
+MemoryLocationRegReg32 :: struct {
+    regbase: XReg,
+    regoffset: WReg,
+    is_sxtw: bool,
+    shift: bool,
+}
+MemoryLocationRegReg64 :: struct {
+    regbase: XReg,
+    regoffset: XReg,
+    shift: bool,
+}
+MemoryLocationRegImmPre :: struct {
+    reg: XReg,
+    imm: int,
+}
+MemoryLocationRegImmPost :: struct {
+    reg: XReg,
+    imm: int,
+}
+MemoryLocationRegUnsignedImm :: struct {
+    reg: XReg,
+    imm: uint,
+}
+at_unsigned :: proc(x: XReg, imm: uint) -> MemoryLocationRegUnsignedImm { return  MemoryLocationRegUnsignedImm { x, imm } }
+
+at_imm :: proc(x: XReg, imm: int) -> MemoryLocationRegImmPre { return  MemoryLocationRegImmPre { x, imm, } }
+at_post:: proc(x: XReg, imm: int) -> MemoryLocationRegImmPost { return  MemoryLocationRegImmPost { x, imm } }
+at_reg32 :: proc(x: XReg, w: WReg, shift2: bool = false, sign_extend: bool = false) -> MemoryLocationRegReg32 {
+    return MemoryLocationRegReg32 {x, w, sign_extend, shift2 }
+}
+at_reg64 :: proc(x: XReg, w: XReg, shift3: bool = false) -> MemoryLocationRegReg64 {
+    return MemoryLocationRegReg64 {x, w, shift3 }
+}
+at :: proc { at_imm, at_reg32, at_reg64, at_unsigned }
 compile_fibonacci :: proc(a: ^Assembler) {
     num1 := x(1)
     num2 := x(2)
@@ -169,16 +203,26 @@ main :: proc() {
 	a: Assembler = {}
 
 	init_asm(&a)
-    compile_fibonacci(&a)
-    assemble(&a)
-
-    block, err := virtual.memory_block_alloc(4096, 4096, 32)
-    copy(block.base[:len(a.bytes)*4], (cast([^]u8)&a.bytes[0])[:len(a.bytes)*4])
-    virtual.protect(transmute(rawptr)(transmute(u64)(block.base) & (~u64(0xFFF))), 4096, {.Read, .Write, .Execute})
-
-    fibonacci := transmute(proc "c" (n1: i64) -> i64)block.base
-
-    fmt.println(fibonacci(20))
+    str(&a, w(0), at(x(0), w(1), true, true))
+    str(&a, w(0), at(x(0), x(1), true))
+    str(&a, w(0), at(x(0), w(1), false, false))
+    str(&a, w(0), at(x(0), x(1), false))
+    str(&a, x(0), at(x(0), w(1), true, true))
+    str(&a, x(0), at(x(0), x(1), true))
+    str(&a, x(0), at(x(0), w(1), false, false))
+    str(&a, x(0), at(x(0), x(1), false))
+    STR_64_ldst_immpre(&a, x(0), at(x(1), -30))
+    str(&a, x(0), at_post(x(1), 128))
+    // compile_fibonacci(&a)
+    // assemble(&a)
+    //
+    // block, err := virtual.memory_block_alloc(4096, 4096, 32)
+    // copy(block.base[:len(a.bytes)*4], (cast([^]u8)&a.bytes[0])[:len(a.bytes)*4])
+    // virtual.protect(transmute(rawptr)(transmute(u64)(block.base) & (~u64(0xFFF))), 4096, {.Read, .Write, .Execute})
+    //
+    // fibonacci := transmute(proc "c" (n1: i64) -> i64)block.base
+    //
+    // fmt.println(fibonacci(20))
     for b in a.bytes {
         fmt.printfln("%4X", b)
     }

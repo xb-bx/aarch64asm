@@ -16,6 +16,7 @@ Field :: struct {
 Class :: struct {
     name: string,
     encodings: []Variant,
+    is_mem: bool,
 }
 Variant :: struct {
     name   : string,
@@ -42,79 +43,157 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
     name := fmt.aprintf("%s/%s.gen.odin", dir, instr.classes[0].encodings[0].name)
     fd, err := os.open(name, os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0o644)
     fmt.fprintln(fd, "package aarch64")
-    fmt.fprintln(fd, "@private")
     prevtype := ""
     for class in instr.classes {
         mnemonic := instr.mnemonic
         if len(instr.classes) != 1 {
-            mnemonic = fmt.aprintf("%s_%s", mnemonic, class.name)
+            // mnemonic = fmt.aprintf("%s_%s", mnemonic, class.name)
         }
         fmt.println(mnemonic)
         if i, ok := mnemonics[instr.mnemonic]; !ok {
             mnemonics[mnemonic] = make([dynamic]string)
         }
         for variant in class.encodings {
-            append(&mnemonics[mnemonic], variant.name)
+            fmt.fprintln(fd, "@private")
             fmt.fprintf(fd, "%s :: #force_inline proc(a: ^Assembler,", variant.name)
-            for fld in variant.fields {
-                type := fld.type    
-                name := fld.name
-                if strings.starts_with(fld.name, "imm") {
-                    type = "i32 = 0"
-                } else if fld.name == "shift" {
-                    type = "Shift"
-                } else if fld.name == "shiftbool" || fld.name == "S" {
-                    type = "bool = false"
-                } else if strings.starts_with(fld.name, "R") {
-                    switch fld.type {
-                    case "w":
-                        type = "WReg"
-                    case "x":
-                        type = "XReg"
-                    case "s":
-                        type = "SReg"
-                    case "d":
-                        type = "DReg"
-                    case "h":
-                        type = "HReg"
-                    case "v":
-                        type = "VReg"
-                    case "b":
-                        type = "BReg"
-                    case "q":
-                        type = "QReg"
-                    case "m":
-                        type = prevtype
-                        if prevtype == "" do fmt.println(instr)
-                    case:
-                        fmt.println(fld, instr)
-                        panic(type)
-                    }
-                    prevtype = type
-                } else if strings.starts_with(fld.name, "imm") {
-                    type = "i32 = 0"
-                } else if strings.starts_with(fld.name, "option") {
-                    type = "Extend"
-                } else if strings.starts_with(fld.name, "label") {
-                    type = "Label"
-                } else if strings.starts_with(fld.name, "cond") {
-                    type = "Cond"
-                } else if strings.starts_with(fld.name, "hw") {
-                    type = "i8 = 0"
-                } else {
-                    fmt.println(fld)
-                    fmt.println(variant.fields, instr.mnemonic)
-                    panic("todo")
+            if class.is_mem {
+                append(&mnemonics[mnemonic], variant.name)
+                rt := Field {}
+                rn := Field {}
+                rm := Field {}
+                imm := Field {}
+                s := Field {}
+                option := Field {}
+                for fld in variant.fields {
+                    if fld.name == "Rt" do rt = fld
+                    else if fld.name == "Rn" do rn = fld
+                    else if fld.name == "Rm" do rm = fld
+                    else if fld.name == "S" do s = fld
+                    else if fld.name == "option" do option = fld
+                    else if strings.starts_with(fld.name, "imm") do imm = fld
                 }
-                fmt.fprintf(fd, "%s: %s, ", name, type)
-            }
-            fmt.fprintln(fd, ") {")
-            fmt.fprintfln(fd, "result: u32 = 0x%4X", variant.opcode)
-            for fld in variant.fields {
-                if fld.name == "label" {
-                        fmt.fprintfln(fd, "append(&a.labelplaces, Labelplace {{ %s.id, len(a.bytes), %i, %i })", fld.name, fld.start, fld.width) 
+                rttype := ""
+                switch rt.type {
+                case "w":
+                    rttype = "WReg"
+                case "x":
+                    rttype = "XReg"
+                case "b":
+                    rttype = "BReg"
+                case "h":
+                    rttype = "HReg"
+                case "s":
+                    rttype = "SReg"
+                case "d":
+                    rttype = "DReg"
+                case "v":
+                    rttype = "VReg"
+                case "q":
+                    rttype = "QReg"
+                case:
+                    panic(rt.type)
+                }
+                fmt.fprint(fd, "Rt:", rttype, ",")
+                mem_type := ""
+                if class.name == "post" {
+                    mem_type = "MemoryLocationRegImmPost"
+                } else if class.name == "pre" {
+                    mem_type = "MemoryLocationRegImmPre"
+                } else if class.name == "unsigned_off" {
+                    mem_type = "MemoryLocationRegUnsignedImm"
                 } else {
-                    fmt.fprintfln(fd, "result |= ((u32(%s) & 0b%s) << %i)", fld.name, ones[:fld.width], fld.start)
+                    switch rm.type {
+                    case "w":
+                        mem_type = "MemoryLocationRegReg32"
+                    case "x":
+                        mem_type = "MemoryLocationRegReg64"
+                    case:
+                        fmt.println(variant)
+                        panic(rm.type)
+                    }
+                }
+                fmt.fprintln(fd, "mem:", mem_type, ") {")
+                fmt.fprintfln(fd, "result: u32 = 0x%4X", variant.opcode)
+                fmt.fprintfln(fd, "result |= ((u32(Rt) & 0b%s) << %i)", ones[:rt.width], rt.start)
+                if class.name == "post" || class.name == "pre" {
+                    fmt.fprintfln(fd, "result |= ((u32(mem.reg) & 0b%s) << %i)", ones[:rn.width], rn.start)
+                    fmt.fprintfln(fd, "result |= ((u32(mem.imm) & 0b%s) << %i)", ones[:imm.width], imm.start)
+                } else if class.name == "unsigned_off" { 
+                    fmt.fprintfln(fd, "result |= ((u32(mem.reg) & 0b%s) << %i)", ones[:rn.width], rn.start)
+                    fmt.fprintfln(fd, "result |= ((u32(mem.imm >> %i) & 0b%s) << %i)", rt.type == "x" ? 3 : 2, ones[:imm.width], imm.start)
+                } else {
+                    fmt.fprintfln(fd, "result |= ((u32(mem.regbase) & 0b%s) << %i)", ones[:rn.width], rn.start)
+                    fmt.fprintfln(fd, "result |= ((u32(mem.regoffset) & 0b%s) << %i)", ones[:rm.width], rm.start)
+                    if rm.type == "w" {
+                        fmt.fprintfln(fd, "result |= ((u32(mem.shift) & 0b%s) << %i)", ones[:s.width], s.start)
+                        fmt.fprintfln(fd, "sx := mem.is_sxtw ? 0b11 : 0b01")
+                        fmt.fprintfln(fd, "result |= ((u32(sx) & 0b11) << %i)", option.start)
+                    } else {
+                        fmt.fprintfln(fd, "result |= ((u32(mem.shift ? 0b011 : 0b010) & 0b111) << %i)", s.start)
+                    }
+                }
+            } else {
+                append(&mnemonics[mnemonic], variant.name)
+                for fld in variant.fields {
+                    type := fld.type    
+                    name := fld.name
+                    if strings.starts_with(fld.name, "imm") {
+                        type = "i32 = 0"
+                    } else if fld.name == "shift" {
+                        type = "Shift"
+                    } else if fld.name == "shiftbool" || fld.name == "S" {
+                        type = "bool = false"
+                    } else if strings.starts_with(fld.name, "R") {
+                        switch fld.type {
+                        case "w":
+                            type = "WReg"
+                        case "x":
+                            type = "XReg"
+                        case "s":
+                            type = "SReg"
+                        case "d":
+                            type = "DReg"
+                        case "h":
+                            type = "HReg"
+                        case "v":
+                            type = "VReg"
+                        case "b":
+                            type = "BReg"
+                        case "q":
+                            type = "QReg"
+                        case "m":
+                            type = prevtype
+                            if prevtype == "" do fmt.println(instr)
+                        case:
+                            fmt.println(fld, instr)
+                            panic(type)
+                        }
+                        prevtype = type
+                    } else if strings.starts_with(fld.name, "imm") {
+                        type = "i32 = 0"
+                    } else if strings.starts_with(fld.name, "option") {
+                        type = "Extend"
+                    } else if strings.starts_with(fld.name, "label") {
+                        type = "Label"
+                    } else if strings.starts_with(fld.name, "cond") {
+                        type = "Cond"
+                    } else if strings.starts_with(fld.name, "hw") {
+                        type = "i8 = 0"
+                    } else {
+                        fmt.println(fld)
+                        fmt.println(variant.fields, instr.mnemonic)
+                        panic("todo")
+                    }
+                    fmt.fprintf(fd, "%s: %s, ", name, type)
+                }
+                fmt.fprintln(fd, ") {")
+                fmt.fprintfln(fd, "result: u32 = 0x%4X", variant.opcode)
+                for fld in variant.fields {
+                    if fld.name == "label" {
+                            fmt.fprintfln(fd, "append(&a.labelplaces, Labelplace {{ %s.id, len(a.bytes), %i, %i })", fld.name, fld.start, fld.width) 
+                    } else {
+                        fmt.fprintfln(fd, "result |= ((u32(%s) & 0b%s) << %i)", fld.name, ones[:fld.width], fld.start)
+                    }
                 }
             }
             fmt.fprintln(fd, "append(&a.bytes, result)")
