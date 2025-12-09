@@ -129,11 +129,17 @@ generate_instruction :: proc(instr: Instruction, dir: string, mnemonics: ^map[st
                 fmt.fprintfln(fd, "result |= ((u32(Rt) & 0b%s) << %i)", ones[:rt.width], rt.start)
                 if rt2.name != "" do fmt.fprintfln(fd, "result |= ((u32(Rt2) & 0b%s) << %i)", ones[:rt2.width], rt2.start)
                 if class.name == "post" || class.name == "pre" {
+                    min_val, max_val := get_min_and_max_off(variant.offset_info, scale)
+                    if variant.offset_info.scaled do fmt.fprintfln(fd, "assert(mem.imm >= %i && mem.imm <= %i && (mem.imm & 0b%s) == 0)", min_val, max_val, ones[:scale])
+                    else do fmt.fprintfln(fd, "assert(mem.imm >= %i && mem.imm <= %i)", min_val, max_val)
                     fmt.fprintfln(fd, "result |= ((u32(mem.reg) & 0b%s) << %i)", ones[:rn.width], rn.start)
-                    fmt.fprintfln(fd, "result |= ((u32(mem.imm >> %i) & 0b%s) << %i)", variant.offset_info.scaled ? scale : 1, ones[:imm.width], imm.start)
+                    fmt.fprintfln(fd, "result |= ((u32(mem.imm >> %i) & 0b%s) << %i)", variant.offset_info.scaled ? scale : 0, ones[:imm.width], imm.start)
                 } else if class.name == "unsigned_off" || class.name == "signed_off" { 
+                    min_val, max_val := get_min_and_max_off(variant.offset_info, scale)
+                    if variant.offset_info.scaled do fmt.fprintfln(fd, "assert(mem.imm >= %i && mem.imm <= %i && (mem.imm & 0b%s) == 0)", min_val, max_val, ones[:scale])
+                    else do fmt.fprintfln(fd, "assert(mem.imm >= %i && mem.imm <= %i)", min_val, max_val)
                     fmt.fprintfln(fd, "result |= ((u32(mem.reg) & 0b%s) << %i)", ones[:rn.width], rn.start)
-                    fmt.fprintfln(fd, "result |= ((u32(mem.imm >> %i) & 0b%s) << %i)", variant.offset_info.scaled ? scale : 1, ones[:imm.width], imm.start)
+                    fmt.fprintfln(fd, "result |= ((u32(mem.imm >> %i) & 0b%s) << %i)", variant.offset_info.scaled ? scale : 0, ones[:imm.width], imm.start)
                 } else {
                     fmt.fprintfln(fd, "result |= ((u32(mem.regbase) & 0b%s) << %i)", ones[:rn.width], rn.start)
                     fmt.fprintfln(fd, "result |= ((u32(mem.regoffset) & 0b%s) << %i)", ones[:rm.width], rm.start)
@@ -237,4 +243,21 @@ main :: proc() {
         fmt.fprintln(fd, "}")
     }
     fmt.println(mnemonics)
+}
+
+get_min_and_max_off :: proc(offset_info: OffsetInfo, scale: int) -> (int, int) {
+    max_val := (1 << uint(offset_info.size - 1)) | ((1 << uint(offset_info.size - 1)) - 1)
+    if offset_info.scaled do max_val <<= uint(scale)
+    min_value := 0
+    if offset_info.signed {
+        max_val >>= 1
+        if offset_info.scaled {
+            max_val ~= 1 << uint(scale - 1)
+            min_value = max_val | (1 << uint(offset_info.size + scale - 1))
+        } else {
+            min_value = max_val | (1 << uint(offset_info.size - 1))
+        }
+        min_value = max_val - min_value
+    }
+    return min_value, max_val
 }
