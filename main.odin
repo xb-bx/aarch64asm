@@ -163,7 +163,7 @@ MemoryLocationRegSignedImm :: struct {
     reg: XReg,
     imm: int,
 }
-at_signed :: proc(x: XReg, imm: uint) -> MemoryLocationRegUnsignedImm { return  MemoryLocationRegUnsignedImm { x, imm } }
+at_signed :: proc(x: XReg, imm: int) -> MemoryLocationRegSignedImm { return  MemoryLocationRegSignedImm { x, imm } }
 at_unsigned :: proc(x: XReg, imm: uint) -> MemoryLocationRegUnsignedImm { return  MemoryLocationRegUnsignedImm { x, imm } }
 
 at_imm :: proc(x: XReg, imm: int) -> MemoryLocationRegImmPre { return  MemoryLocationRegImmPre { x, imm, } }
